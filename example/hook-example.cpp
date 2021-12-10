@@ -1,5 +1,5 @@
 #include <iostream>
-#include "hook.h"
+#include "../hook.h"
 
 int get_r(int n) {
     int ret = 1;

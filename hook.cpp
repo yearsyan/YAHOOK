@@ -119,7 +119,7 @@ namespace hook {
             // 3 instrument
             overwrite_ins_num = 3;
             overwrite_len = AARCH64_INS_LEN*overwrite_ins_num;
-            overwrite_ins[0] = 0x90000010 |  ((address_delta & 0x3000)  << 16) | ((address_delta & 0xfffc000) >> 10);
+            overwrite_ins[0] = 0x90000010 |  ((address_delta & 0x3000)  << 17) | ((address_delta & 0xfffc000) >> 9);
             overwrite_ins[1] = 0x91000210 | ((0xfff & reinterpret_cast<long long>(new_func)) << 10);
             overwrite_ins[2] = 0xd61f0200;
 
