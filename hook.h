@@ -7,15 +7,20 @@
 
 namespace hook {
 
+    class context;
+
     class hook_result {
     public:
+        ~hook_result();
     private:
-        void* trampoline_address_;
+        void* trampoline_address_; // this must be at head because of ORIGIN_FUNCTION
         unsigned long long trampoline_len_;
         void* origin_entry_address_;
         signed int overwrite_bytes_num_;
         void* origin_code_save_;
         void* callee_save_trampoline_;
+        unsigned long long callee_save_trampoline_len_;
+        context* ctx_;
         friend class context;
     };
 
@@ -30,8 +35,9 @@ namespace hook {
         void *alloc_code_mem(std::size_t len);
         void code_commit(void* address, std::size_t len);
         void* create_trampoline(void* back_address, void* overwrite_code, size_t overwrite_len, size_t* code_len);
-        void* create_callee_save_trampoline(void* target_function, void* save_address);
+        void* create_callee_save_trampoline(void* target_function, void* save_address, size_t* len = nullptr);
         void release_code(void *address, std::size_t len);
+        friend class hook_result;
     };
 
 }

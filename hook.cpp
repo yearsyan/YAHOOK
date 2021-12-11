@@ -4,7 +4,6 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <cstring>
-#include <cstdlib>
 
 #define PAGE_ADDRESS_OF(x) (reinterpret_cast<int64_t>(x) & 0xfffffffffffff000)
 #define PAGE_SIZE (1024*4)
@@ -31,9 +30,18 @@ namespace hook {
         return mprotect(page_align_address, page_align_size, PROT_READ | PROT_EXEC);
     }
 
-    void get_recover_function(void * origin) {
-
+    hook_result::~hook_result() {
+        if (origin_code_save_ != nullptr) {
+            delete[] reinterpret_cast<char *>(origin_code_save_);
+        }
+        if (trampoline_address_ != nullptr) {
+            ctx_->release_code(trampoline_address_, trampoline_len_);
+        }
+        if (callee_save_trampoline_ != nullptr) {
+            ctx_->release_code(callee_save_trampoline_, callee_save_trampoline_len_);
+        }
     }
+
 
     void* context::create_trampoline(void* back_address, void* overwrite_code, size_t overwrite_len, size_t* code_len) {
         auto code_mem = alloc_code_mem(overwrite_len + 4*AARCH64_INS_LEN);
@@ -53,7 +61,7 @@ namespace hook {
         return code_mem;
     }
 
-    void* context::create_callee_save_trampoline(void* target_function, void* save_address) {
+    void* context::create_callee_save_trampoline(void* target_function, void* save_address, size_t* len) {
         auto code_mem =  reinterpret_cast<char*>(alloc_code_mem(2 * sizeof(void*) + 3 * AARCH64_INS_LEN));
         const unsigned char code[] = {
                 0x6f, 0x00, 0x00, 0x58, //ldr x15, #12
@@ -64,6 +72,11 @@ namespace hook {
         memcpy(code_mem + sizeof(code), &save_address, sizeof(save_address));
         memcpy(code_mem + sizeof(code) + sizeof(save_address), &target_function, sizeof(target_function));
         code_commit(code_mem, 2 * sizeof(void*) + 3 * AARCH64_INS_LEN);
+
+        if (len != nullptr) {
+            *len = 2* sizeof(void*) + 3 * AARCH64_INS_LEN;
+        }
+
         return code_mem;
     }
 
@@ -103,13 +116,10 @@ namespace hook {
         auto origin_save_ptr = reinterpret_cast<uint32_t*>(res->origin_code_save_);
         target_ins_ptr[0] = LOOP_INS;
 
-        // TODO: memory leak of res
-        // TODO: use new/delete to manage origin_code_save_
+        
         memcpy(target_ins_ptr + 1, origin_save_ptr + 1, res->overwrite_bytes_num_ - AARCH64_INS_LEN);
         target_ins_ptr[0] = origin_save_ptr[0];
         disable_page_write(res->origin_entry_address_, res->overwrite_bytes_num_);
-        free(res->origin_code_save_);
-        release_code(res->trampoline_address_, res->trampoline_len_);
         hook_map_.erase(res->origin_entry_address_);
         delete res;
 
@@ -123,6 +133,7 @@ namespace hook {
         int overwrite_ins_num;
         uint32_t overwrite_ins[4] = {0};
         size_t trampoline_len;
+        size_t callee_save_trampoline_len;
         void* ins_save = nullptr;
         void* first_dest = new_func;
         auto pid = get_pid();
@@ -137,7 +148,7 @@ namespace hook {
         }
 
         if (require_origin) {
-            first_dest = create_callee_save_trampoline(new_func, hook_save);
+            first_dest = create_callee_save_trampoline(new_func, hook_save, &callee_save_trampoline_len);
         }
 
         int64_t address_delta = PAGE_ADDRESS_OF(first_dest) - PAGE_ADDRESS_OF(target);
@@ -152,15 +163,15 @@ namespace hook {
         } else {
             overwrite_ins_num = 4;
             overwrite_len = AARCH64_INS_LEN*overwrite_ins_num;
-            overwrite_ins[0] = 0x58000050;
-            overwrite_ins[1] = 0xd61f0200;
+            overwrite_ins[0] = 0x58000050; // LDR X16, #8
+            overwrite_ins[1] = 0xd61f0200; // BR X16
             memcpy(&overwrite_ins[2], &first_dest, sizeof(void*));
-
         }
 
         // make target address writable
         enable_page_write(target, overwrite_len);
-        ins_save = malloc(overwrite_len);
+        //ins_save = malloc(overwrite_len);
+        ins_save = new char[overwrite_len];
         back_trampoline = create_trampoline(
             reinterpret_cast<char *>(target) + overwrite_len, target, overwrite_len, &trampoline_len
         );
@@ -176,12 +187,14 @@ namespace hook {
         }
 
         disable_page_write(target, overwrite_len);
-        hook_save->origin_code_save_ = ins_save;
+        hook_save->ctx_ = this;
+        hook_save->origin_code_save_ = static_cast<char *>(ins_save);
         hook_save->origin_entry_address_ = target;
         hook_save->overwrite_bytes_num_ = overwrite_len;
         hook_save->trampoline_address_ = back_trampoline;
         hook_save->trampoline_len_ = trampoline_len;
         hook_save->callee_save_trampoline_ = first_dest == new_func ? nullptr : first_dest;
+        hook_save->callee_save_trampoline_len_ = callee_save_trampoline_len;
         hook_map_[target] = hook_save;
 
         // unlock
