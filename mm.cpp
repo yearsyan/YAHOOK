@@ -111,4 +111,16 @@ namespace hook {
         } while ((p = p->next) != nullptr);
     }
 
+    execute_mem_pool::~execute_mem_pool() {
+        execute_mem_pool_item* p = head_;
+        execute_mem_pool_item* up = nullptr;
+        do {
+            delete up;
+            munmap(p->mem_start_, execute_mem_pool_item::item_size);
+            up = p;
+        } while ((p = p->next) != nullptr);
+        delete up;
+    }
+
+
 }

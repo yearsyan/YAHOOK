@@ -28,6 +28,8 @@ namespace hook {
     };
 
     class execute_mem_pool {
+    public:
+        ~execute_mem_pool();
     private:
         execute_mem_pool();
         execute_mem_pool_item* head_;
