@@ -80,17 +80,19 @@ namespace hook {
         return code_mem;
     }
 
-    // TODO: use mem pool
+
+    context::context(): mem_pool_(std::unique_ptr<execute_mem_pool>(new execute_mem_pool)) {}
+
     void *context::alloc_code_mem(std::size_t len) {
-        return mmap(nullptr, len, PROT_WRITE | PROT_READ, MAP_PRIVATE|MAP_ANONYMOUS, 0, 0);
+        return mem_pool_->alloc_mem(len);
     }
 
     void context::code_commit(void *address, size_t len) {
-        mprotect(address, len, PROT_READ | PROT_EXEC);
+        mem_pool_->code_write_done(address, len);
     }
 
     void context::release_code(void *address, std::size_t len) {
-        munmap(address, len);
+        mem_pool_->free_mem(address, len);
     }
 
     void context::unhook(void *address) {
@@ -128,7 +130,6 @@ namespace hook {
 
     hook_result *context::hook(void *target, void *new_func, bool require_origin) {
 
-        // lock
         int overwrite_len;
         int overwrite_ins_num;
         uint32_t overwrite_ins[4] = {0};
@@ -139,6 +140,7 @@ namespace hook {
         auto pid = get_pid();
         void* back_trampoline;
         auto hook_save = new hook_result;
+        // lock
         while (true) {
             while (hook_lock_.load() != 0); // wait
             hook_lock_.store(pid);

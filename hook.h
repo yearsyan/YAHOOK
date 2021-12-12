@@ -2,6 +2,8 @@
 #include <cstdint>
 #include <map>
 #include <atomic>
+#include <memory>
+#include "mm.h"
 
 #define ORIGIN_FUNCTION(save) __asm__ ("LDR %0, [x15];": "=r"(save));
 
@@ -29,9 +31,11 @@ namespace hook {
         hook_result* hook(void* target, void* new_func, bool require_origin = false);
         void unhook(void* address);
         void unhook(hook_result* res);
+        context();
     private:
         std::map<void*, hook_result*> hook_map_;
         std::atomic<long> hook_lock_ = 0;
+        std::unique_ptr<execute_mem_pool> mem_pool_;
         void *alloc_code_mem(std::size_t len);
         void code_commit(void* address, std::size_t len);
         void* create_trampoline(void* back_address, void* overwrite_code, size_t overwrite_len, size_t* code_len);

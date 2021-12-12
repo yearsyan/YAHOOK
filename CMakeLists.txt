@@ -3,7 +3,7 @@ project(YAHOOK)
 
 set(CMAKE_CXX_STANDARD 17)
 
-add_library(YAHOOK SHARED hook.cpp hook.h)
+add_library(YAHOOK SHARED hook.cpp hook.h mm.cpp mm.h)
 
 MESSAGE("Build System: ${CMAKE_SYSTEM_NAME}")
 if (CMAKE_SYSTEM_NAME MATCHES "Linux" OR CMAKE_SYSTEM_NAME MATCHES "Darwin")
