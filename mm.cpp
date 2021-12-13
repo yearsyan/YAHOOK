@@ -1,43 +1,67 @@
 #include <cstdlib>
 #include <sys/mman.h>
 #include "mm.h"
+#include <cstring>
 
 namespace hook {
 
     execute_mem_pool_item::execute_mem_pool_item(): write_request_(0) {
         next = nullptr;
-        mem_start_ = mmap(nullptr, item_size, PROT_EXEC | PROT_READ, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
+        mem_start_ = mmap(nullptr, item_size, PROT_EXEC | PROT_READ | PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
+        memset(mem_start_, 0, item_size);
+        *(reinterpret_cast<uint32_t*>(mem_start_) + 1) = item_size - 2*sizeof(uint32_t);
     }
 
     void *execute_mem_pool_item::alloc_mem(size_t len) {
         if (len > max_alloc_len) {
             return nullptr;
         }
-        size_t unit_need = len/unit_size + 1;
-        for (int unit_idx = 0; unit_idx < unit_count; unit_idx++) {
-            if(has_free(unit_idx, unit_need)) {
-                {
-                    //set bits
-                    for(int curr_unit_idx = unit_idx; curr_unit_idx < unit_idx + unit_need; curr_unit_idx++) {
-                        int arr_index = curr_unit_idx / 64;
-                        int bit_off = curr_unit_idx % 64;
-                        bit_map_[arr_index] |= (1 << bit_off);
-                    }
+        auto p = reinterpret_cast<unsigned char*>(mem_start_);
+        size_t curr_index = 0;
+        while (curr_index < item_size) {
+            // pass used space
+            auto flags = *reinterpret_cast<uint32_t*>(p+curr_index);
+            auto item_len = *reinterpret_cast<uint32_t*>(p + curr_index + sizeof(uint32_t));
+            if ((flags & flag_use) != 0) {
+                curr_index += (sizeof(uint32_t)*2 + item_len);
+                continue;
+            }
+
+            // find real free size;
+            size_t item_real_len = 0;
+            auto start_index = curr_index;
+            while (item_real_len < len) {
+                auto this_flag = *reinterpret_cast<uint32_t*>(p + curr_index);
+                auto this_item_len = *reinterpret_cast<uint32_t*>(p + curr_index + sizeof(uint32_t));
+                if ((this_flag & flags ) != 0) {
+                    break;
                 }
+                item_real_len += this_item_len;
+                if (curr_index != start_index) {
+                    item_real_len = 2 * sizeof(uint32_t);
+                }
+                curr_index += 2 * sizeof(uint32_t) + this_item_len;
+            }
+            if (item_real_len >= len) {
                 inc_write_request();
-                return reinterpret_cast<uint64_t*>(mem_start_) + unit_idx;
+                *reinterpret_cast<uint32_t*>(p + start_index) |= flag_use;
+                *reinterpret_cast<uint32_t*>(p + start_index + sizeof(uint32_t)) = len;
+                if (item_real_len != len && len + start_index + 2 * sizeof(uint32_t) < item_size) {
+                    *reinterpret_cast<uint32_t*>(p + start_index + 2 * sizeof(uint32_t) + len) &= ~flag_use;
+                    *reinterpret_cast<uint32_t*>(p + start_index + 3 * sizeof(uint32_t) + len) = item_real_len - len;
+                }
+                return p + start_index + 2 * sizeof(uint32_t);
             }
         }
+
         return nullptr;
     }
 
     void execute_mem_pool_item::free_mem(void *address, size_t len) {
-        size_t unit_use = len/unit_size + 1;
-        size_t unit_idx = (reinterpret_cast<unsigned long>(address) - reinterpret_cast<unsigned long >(mem_start_))/unit_size;
-        for(size_t curr_unit_idx = unit_idx; curr_unit_idx < unit_idx + unit_use; curr_unit_idx++) {
-            auto arr_index = curr_unit_idx / 64;
-            auto bit_off = curr_unit_idx % 64;
-            bit_map_[arr_index] &= (~(1 << bit_off));
+        if (is_this_item(address)) {
+            inc_write_request();
+            *(reinterpret_cast<uint32_t*>(address) - 2) &= ~flag_use;
+            dec_write_request();
         }
     }
 
@@ -59,20 +83,6 @@ namespace hook {
         auto l = reinterpret_cast<unsigned long>(address);
         return (l >= reinterpret_cast<unsigned long>(mem_start_)) &&
                 (l < reinterpret_cast<unsigned long>(mem_start_) + item_size);
-    }
-
-    bool execute_mem_pool_item::has_free(int unit_index, size_t unit_need) {
-        static const auto get_bit = [this](int curr_unit_index) {
-            int arr_index = curr_unit_index / 64;
-            int bit_off = curr_unit_index % 64;
-            return (bit_map_[arr_index] & (1 << bit_off)) != 0;
-        };
-        for (int i = 0;i < unit_need;i++) {
-            if (get_bit(unit_index+i)) {
-                return false;
-            }
-        }
-        return true;
     }
 
     execute_mem_pool::execute_mem_pool() {
@@ -121,6 +131,5 @@ namespace hook {
         } while ((p = p->next) != nullptr);
         delete up;
     }
-
 
 }
