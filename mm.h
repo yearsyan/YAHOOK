@@ -13,6 +13,7 @@ namespace hook {
     private:
         static const size_t item_size = 4096;
         static const uint32_t flag_use = 0x00000001;
+        static const size_t header_size = 2 * sizeof(uint16_t);
 
         void* mem_start_;
         execute_mem_pool_item* next;

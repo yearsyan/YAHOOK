@@ -9,7 +9,7 @@ namespace hook {
         next = nullptr;
         mem_start_ = mmap(nullptr, item_size, PROT_EXEC | PROT_READ | PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
         memset(mem_start_, 0, item_size);
-        *(reinterpret_cast<uint32_t*>(mem_start_) + 1) = item_size - 2*sizeof(uint32_t);
+        *(reinterpret_cast<uint16_t *>(mem_start_) + 1) = item_size - 2*sizeof(uint16_t);
     }
 
     void *execute_mem_pool_item::alloc_mem(size_t len) {
@@ -20,10 +20,10 @@ namespace hook {
         size_t curr_index = 0;
         while (curr_index < item_size) {
             // pass used space
-            auto flags = *reinterpret_cast<uint32_t*>(p+curr_index);
-            auto item_len = *reinterpret_cast<uint32_t*>(p + curr_index + sizeof(uint32_t));
+            auto flags = *reinterpret_cast<uint16_t *>(p+curr_index);
+            auto item_len = *reinterpret_cast<uint16_t *>(p + curr_index + sizeof(uint16_t));
             if ((flags & flag_use) != 0) {
-                curr_index += (sizeof(uint32_t)*2 + item_len);
+                curr_index += (header_size + item_len);
                 continue;
             }
 
@@ -31,26 +31,26 @@ namespace hook {
             size_t item_real_len = 0;
             auto start_index = curr_index;
             while (item_real_len < len) {
-                auto this_flag = *reinterpret_cast<uint32_t*>(p + curr_index);
-                auto this_item_len = *reinterpret_cast<uint32_t*>(p + curr_index + sizeof(uint32_t));
+                auto this_flag = *reinterpret_cast<uint16_t *>(p + curr_index);
+                auto this_item_len = *reinterpret_cast<uint16_t *>(p + curr_index + sizeof(uint16_t));
                 if ((this_flag & flags ) != 0) {
                     break;
                 }
                 item_real_len += this_item_len;
                 if (curr_index != start_index) {
-                    item_real_len = 2 * sizeof(uint32_t);
+                    item_real_len = header_size;
                 }
-                curr_index += 2 * sizeof(uint32_t) + this_item_len;
+                curr_index += header_size + this_item_len;
             }
             if (item_real_len >= len) {
                 inc_write_request();
-                *reinterpret_cast<uint32_t*>(p + start_index) |= flag_use;
-                *reinterpret_cast<uint32_t*>(p + start_index + sizeof(uint32_t)) = len;
-                if (item_real_len != len && len + start_index + 2 * sizeof(uint32_t) < item_size) {
-                    *reinterpret_cast<uint32_t*>(p + start_index + 2 * sizeof(uint32_t) + len) &= ~flag_use;
-                    *reinterpret_cast<uint32_t*>(p + start_index + 3 * sizeof(uint32_t) + len) = item_real_len - len;
+                *reinterpret_cast<uint16_t *>(p + start_index) |= flag_use;
+                *reinterpret_cast<uint16_t *>(p + start_index + sizeof(uint16_t)) = len;
+                if (item_real_len != len && len + start_index + 2 * sizeof(uint16_t) < item_size) {
+                    *reinterpret_cast<uint16_t *>(p + start_index + header_size + len) &= ~flag_use;
+                    *reinterpret_cast<uint16_t *>(p + start_index + header_size + sizeof(uint16_t) + len) = item_real_len - len;
                 }
-                return p + start_index + 2 * sizeof(uint32_t);
+                return p + start_index + header_size;
             }
         }
 
@@ -60,7 +60,7 @@ namespace hook {
     void execute_mem_pool_item::free_mem(void *address, size_t len) {
         if (is_this_item(address)) {
             inc_write_request();
-            *(reinterpret_cast<uint32_t*>(address) - 2) &= ~flag_use;
+            *(reinterpret_cast<uint16_t*>(address) - 2) &= ~flag_use;
             dec_write_request();
         }
     }
