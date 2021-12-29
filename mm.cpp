@@ -66,14 +66,14 @@ namespace hook {
     }
 
     void execute_mem_pool_item::inc_write_request() {
-        atomic_fetch_add(&write_request_,1);
+        write_request_.fetch_add(1);
         if (write_request_.load() == 1) {
             mprotect(mem_start_, item_size, PROT_EXEC | PROT_READ | PROT_WRITE);
         }
     }
 
     void execute_mem_pool_item::dec_write_request() {
-        std::atomic_fetch_sub(&write_request_, 1);
+        write_request_.fetch_sub(1);
         if (write_request_.load() == 0) {
             mprotect(mem_start_, item_size, PROT_READ | PROT_EXEC);
         }
