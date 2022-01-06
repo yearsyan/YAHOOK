@@ -153,22 +153,11 @@ namespace hook {
             first_dest = create_callee_save_trampoline(new_func, hook_save, &callee_save_trampoline_len);
         }
 
-        int64_t address_delta = PAGE_ADDRESS_OF(first_dest) - PAGE_ADDRESS_OF(target);
-        if (address_delta < 0xffffffff && address_delta > -0xffffffff) {
-            // 3 instrument
-            overwrite_ins_num = 3;
-            overwrite_len = AARCH64_INS_LEN*overwrite_ins_num;
-            overwrite_ins[0] = 0x90000010 |  ((address_delta & 0x3000)  << 17) | ((address_delta & 0xfffc000) >> 9);
-            overwrite_ins[1] = 0x91000210 | ((0xfff & reinterpret_cast<long long>(first_dest)) << 10);
-            overwrite_ins[2] = 0xd61f0200;
-
-        } else {
-            overwrite_ins_num = 4;
-            overwrite_len = AARCH64_INS_LEN*overwrite_ins_num;
-            overwrite_ins[0] = 0x58000050; // LDR X16, #8
-            overwrite_ins[1] = 0xd61f0200; // BR X16
-            memcpy(&overwrite_ins[2], &first_dest, sizeof(void*));
-        }
+        overwrite_ins_num = 4;
+        overwrite_len = AARCH64_INS_LEN*overwrite_ins_num;
+        overwrite_ins[0] = 0x58000050; // LDR X16, #8
+        overwrite_ins[1] = 0xd61f0200; // BR X16
+        memcpy(&overwrite_ins[2], &first_dest, sizeof(void*));
 
         // make target address writable
         enable_page_write(target, overwrite_len);
